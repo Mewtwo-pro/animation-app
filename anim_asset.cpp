@@ -1411,6 +1411,29 @@ int main() {
   bool update_lista_buscador = true;
   bool zoomMode = false;
   bool multiSelectMode = false;
+
+  //circle bezier variables 
+
+    // 3. Variables de Estado RGB independientes para Relleno y Borde
+    int fillR = 255, fillG = 100, fillB = 150;
+    int outlineR = 255, outlineG = 255, outlineB = 255;
+
+    // Variables actuales que mueven los sliders (inicializadas con Relleno)
+    int r = fillR, g = fillG, b = fillB;
+    bool draggingR = false, draggingG = false, draggingB = false;
+
+    // Modo actual: 0 para Relleno (Fill), 1 para Borde (Outline)
+    int currentMode = 0; 
+
+    // Propiedades del círculo central
+    float circleRadius = 75.f;
+    sf::Vector2f circleCenter(100.f, 550.f);
+
+    // Configuración de los sliders
+    float trackX = 60.f;
+    float trackWidth = 256.f;
+    float trackHeight = 12.f;
+    bool create_circle_bezier = false;
   while (window.isOpen()) {
     sf::Event event;
     filteredResults.clear();
@@ -1453,7 +1476,7 @@ int main() {
             "remove bloque frames" , "slow x2", "remove key","move 10",
             "retime x2", "retime /2" , "add assets" , "select asset", 
             "pin controles" , "pin move range", "copy pose range", "paste pose range",
-            "paste pose range mirror", "head pin"
+            "paste pose range mirror", "head pin", "circle bezier"
         };
       }
     }
@@ -1501,6 +1524,53 @@ int main() {
     while (window.pollEvent(event)) {
       if (event.type == sf::Event::Closed){
           window.close();
+      }
+      if (create_circle_bezier){
+        sf::Vector2i mousePos = sf::Mouse::getPosition(window);
+        sf::Vector2f worldMouse(static_cast<float>(mousePos.x), static_cast<float>(mousePos.y));
+
+        if (event.type == sf::Event::MouseButtonPressed) {
+            if (event.mouseButton.button == sf::Mouse::Left) {
+                // Delimitadores de los sliders
+                sf::FloatRect rectR(trackX, 150.f, trackWidth, trackHeight);
+                sf::FloatRect rectG(trackX, 230.f, trackWidth, trackHeight);
+                sf::FloatRect rectB(trackX, 310.f, trackWidth, trackHeight);
+
+                if (rectR.contains(worldMouse)) draggingR = true;
+                if (rectG.contains(worldMouse)) draggingG = true;
+                if (rectB.contains(worldMouse)) draggingB = true;
+
+                // Delimitador para cambiar de modo
+                
+                sf::FloatRect modeToggleRect(90.f, 420.f, 240.f, 40.f);
+                if (modeToggleRect.contains(worldMouse)) {
+                    // 1. Guardar valores actuales antes de cambiar
+                    if (currentMode == 0) {
+                        fillR = r; fillG = g; fillB = b;
+                    } else {
+                        outlineR = r; outlineG = g; outlineB = b;
+                    }
+
+                    // 2. Alternar modo
+                    currentMode = 1 - currentMode; 
+
+                    // 3. Cargar valores correspondientes al nuevo modo en los sliders
+                    if (currentMode == 0) {
+                        r = fillR; g = fillG; b = fillB;
+                    } else {
+                        r = outlineR; g = outlineG; b = outlineB;
+                    }
+                }
+            }
+        }
+
+        if (event.type == sf::Event::MouseButtonReleased) {
+            if (event.mouseButton.button == sf::Mouse::Left) {
+                draggingR = false;
+                draggingG = false;
+                draggingB = false;
+            }
+        }
       }
       if (openBuscador && event.type == sf::Event::TextEntered){
           if (justOpenBuscador){
@@ -2602,17 +2672,24 @@ int main() {
           }else if (event.key.code == sf::Keyboard::T){
             moveState = 2;
           }else if (event.key.code == sf::Keyboard::Enter){
-            selectMode = 1;
-            if (preSelect){
-              preSelect->selectedPoint  = nullptr;
-              preSelect->update();
-            }
-            auto posHips = fullBody[4]->pBottom.pos;
-            allBody_ctrl.setPosition(posHips.x , posHips.y + 20);
-            ss.str("");
-            ss.clear();
-            ss << "select all  : " << "on"; 
-            setMensajeTime(ss, timeMensaje , viewTimeMensaje, mensajeClock);
+            if (create_circle_bezier){
+                create_circle_bezier = false;
+                std::cout << fillR << fillG << fillB << std::endl; 
+                std::cout <<outlineR<<  outlineG<<outlineB<< std::endl; 
+                
+            }else{
+                selectMode = 1;
+                if (preSelect){
+                  preSelect->selectedPoint  = nullptr;
+                  preSelect->update();
+                }
+                auto posHips = fullBody[4]->pBottom.pos;
+                allBody_ctrl.setPosition(posHips.x , posHips.y + 20);
+                ss.str("");
+                ss.clear();
+                ss << "select all  : " << "on"; 
+                setMensajeTime(ss, timeMensaje , viewTimeMensaje, mensajeClock);
+             }
           }else if (event.key.code == sf::Keyboard::E){
             isPlay = true;
             playClock.restart();
@@ -4349,6 +4426,12 @@ int main() {
                 setMensajeTime(ss, timeMensaje, viewTimeMensaje, mensajeClock);
             }
         
+      }else if (select_action == "circle bezier"){
+        if (create_circle_bezier){
+          create_circle_bezier = false; 
+        }else {
+          create_circle_bezier = true;
+        }
       }else if (select_action == "volumen audio"){
         volumenAudio = true;
         ss.str("");
@@ -4569,7 +4652,24 @@ int main() {
           }
         }
     }
+    if(create_circle_bezier){
+        // Actualizar valores de los sliders según el movimiento del mouse
+        sf::Vector2i mousePos = sf::Mouse::getPosition(window);
+        float mouseX = static_cast<float>(mousePos.x);
 
+        if (draggingR) {
+            r = static_cast<int>(std::clamp(mouseX - trackX, 0.f, trackWidth));
+            if (currentMode == 0) fillR = r; else outlineR = r;
+        }
+        if (draggingG) {
+            g = static_cast<int>(std::clamp(mouseX - trackX, 0.f, trackWidth));
+            if (currentMode == 0) fillG = g; else outlineG = g;
+        }
+        if (draggingB) {
+            b = static_cast<int>(std::clamp(mouseX - trackX, 0.f, trackWidth));
+            if (currentMode == 0) fillB = b; else outlineB = b;
+        }
+    }
     window.clear(sf::Color(30, 30, 30));
     window.setView(viewInfo);
     window.draw(drawInfo);
@@ -4871,7 +4971,82 @@ int main() {
         }
 
     }
+    if (create_circle_bezier){
+        // --- 1. SLIDER ROJO ---
 
+        sf::RectangleShape trackR(sf::Vector2f(trackWidth, trackHeight));
+        trackR.setPosition(trackX, 150.f);
+        trackR.setFillColor(sf::Color(80, 40, 40));
+        window.draw(trackR);
+
+        sf::RectangleShape handleR(sf::Vector2f(10.f, trackHeight + 10.f));
+        handleR.setPosition(trackX + r - 5.f, 145.f);
+        handleR.setFillColor(sf::Color::Red);
+        window.draw(handleR);
+
+        // --- 2. SLIDER VERDE ---
+        sf::RectangleShape trackG(sf::Vector2f(trackWidth, trackHeight));
+        trackG.setPosition(trackX, 230.f);
+        trackG.setFillColor(sf::Color(40, 80, 40));
+        window.draw(trackG);
+
+        sf::RectangleShape handleG(sf::Vector2f(10.f, trackHeight + 10.f));
+        handleG.setPosition(trackX + g - 5.f, 225.f);
+        handleG.setFillColor(sf::Color::Green);
+        window.draw(handleG);
+
+        // --- 3. SLIDER AZUL ---
+
+        sf::RectangleShape trackB(sf::Vector2f(trackWidth, trackHeight));
+        trackB.setPosition(trackX, 310.f);
+        trackB.setFillColor(sf::Color(40, 40, 80));
+        window.draw(trackB);
+
+        sf::RectangleShape handleB(sf::Vector2f(10.f, trackHeight + 10.f));
+        handleB.setPosition(trackX + b - 5.f, 305.f);
+        handleB.setFillColor(sf::Color::Blue);
+        window.draw(handleB);
+
+        // --- 4. SIMULADOR DE COMBO BOX (SELECTOR DE MODO) ---
+        sf::RectangleShape comboBg(sf::Vector2f(240.f, 40.f));
+        comboBg.setPosition(90.f, 410.f);
+        comboBg.setFillColor(sf::Color(50, 50, 60));
+        comboBg.setOutlineColor(sf::Color(100, 100, 120));
+        comboBg.setOutlineThickness(2.f);
+        window.draw(comboBg);
+
+        std::string modeText = (currentMode == 0) ? "Relleno" : "Borde";
+        sf::Text comboLabel("Modo: " + modeText + " (Clic)", font, 14);
+        comboLabel.setPosition(100.f, 420.f);
+        comboLabel.setFillColor(sf::Color::White);
+        window.draw(comboLabel);
+
+        // --- 5. MODELO CIRCULAR (VISTA PREVIA) ---
+        sf::CircleShape previewCircle(circleRadius);
+        previewCircle.setOrigin(circleRadius, circleRadius);
+        previewCircle.setPosition(circleCenter);
+
+        sf::Color fillColor(static_cast<sf::Uint8>(fillR), static_cast<sf::Uint8>(fillG), static_cast<sf::Uint8>(fillB));
+        sf::Color outlineColor(static_cast<sf::Uint8>(outlineR), static_cast<sf::Uint8>(outlineG), static_cast<sf::Uint8>(outlineB));
+
+        previewCircle.setFillColor(fillColor);
+        previewCircle.setOutlineColor(outlineColor);
+        previewCircle.setOutlineThickness(8.f);
+        window.draw(previewCircle);
+
+        // --- 6. VALORES NUMÉRICOS Y HEXADECIMALES (del modo activo) ---
+        int activeR = (currentMode == 0) ? fillR : outlineR;
+        int activeG = (currentMode == 0) ? fillG : outlineG;
+        int activeB = (currentMode == 0) ? fillB : outlineB;
+
+        sf::Text infoText;
+        infoText.setFont(font);
+        infoText.setCharacterSize(15);
+        infoText.setFillColor(sf::Color::Black);
+        infoText.setPosition(100.f, 380.f);
+        infoText.setString("RGB: (" + std::to_string(activeR) + ", " + std::to_string(activeG) + ", " + std::to_string(activeB) + ")");
+        window.draw(infoText);
+    }
     window.display();
   }
   return 0;
