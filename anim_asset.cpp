@@ -23,6 +23,235 @@ void setMensajeTime (std:: stringstream& ss , sf::Text& timeMensaje,
   mensajeClock.restart();
 }
 
+sf::VertexArray appendThickVertexCircle(sf::Vector2f p, sf::Vector2f lastP
+  , float thickness, sf::VertexArray outline, sf::Color borderColor) {
+    sf::Vector2f tangent = p - lastP;
+    float length = std::sqrt(tangent.x * tangent.x + tangent.y * tangent.y);
+    
+    sf::Vector2f normal(0.f, 0.f);
+    if (length != 0) {
+        normal = sf::Vector2f(-tangent.y / length, tangent.x / length);
+    }
+
+    sf::Vector2f pOut = p + normal * (thickness / 2.f);
+    sf::Vector2f pIn  = p - normal * (thickness / 2.f);
+
+    outline.append(sf::Vertex(pOut, borderColor));
+    outline.append(sf::Vertex(pIn, borderColor));
+    return outline;
+}
+
+sf::Vector2f rotateVector(sf::Vector2f v, float angle) {
+    float cosA = std::cos(angle);
+    float sinA = std::sin(angle);
+    return sf::Vector2f(v.x * cosA - v.y * sinA, v.x * sinA + v.y * cosA);
+}
+
+sf::Vector2f calculateBezier(sf::Vector2f p0, sf::Vector2f p1, sf::Vector2f p2, sf::Vector2f p3, float t) {
+    float u = 1.0f - t;
+    float tt = t * t;
+    float uu = u * u;
+    float uuu = uu * u;
+    float ttt = tt * t;
+
+    sf::Vector2f p = uuu * p0;
+    p += 3.0f * uu * t * p1;
+    p += 3.0f * u * tt * p2;
+    p += ttt * p3;
+    return p;
+}
+
+struct ControlPointCicle {
+    sf::Vector2f pos;
+    sf::RectangleShape visualNode;
+    void initVisual(sf::Color color = sf::Color::Blue) {
+        visualNode.setOrigin(6.f, 6.f);
+        visualNode.setSize(sf::Vector2f(10,10));
+        visualNode.setFillColor(color);
+        updateVisualPosition();
+    }
+    void updateVisualPosition() {
+        visualNode.setPosition(pos);
+    }
+};
+
+class CircleBezier4Points {
+public:
+    ControlPointCicle pTop;
+    ControlPointCicle pRight;
+    ControlPointCicle pBottom;
+    ControlPointCicle pLeft;
+
+    ControlPointCicle* selectedPoint = nullptr;
+    
+    sf::VertexArray outline;
+    sf::VertexArray fillShape; // Relleno interior plomo
+    sf::VertexArray handlesLines;
+    std::vector<sf::RectangleShape> handleDots;
+    
+    float radius = 100.0f;
+    float thickness = 4.0f;
+    int pointsPerSegment = 25;
+    sf::Color fillColor; 
+    sf::Color borderColor;
+    // Constantes k independientes para cada nodo
+    float kTop = 0.552284f;
+    float kRight = 0.552284f;
+    float kBottom = 0.552284f;
+    float kLeft = 0.552284f;
+    
+    // Rotaciones individuales de las manecillas por punto
+    float rotTop = 0.f;
+    float rotRight = 0.f;
+    float rotBottom = 0.f;
+    float rotLeft = 0.f;
+
+    CircleBezier4Points(sf::Vector2f center,sf::Color fill = sf::Color(160,160,160,200),sf::Color border = sf::Color::Black) 
+    : outline(sf::TriangleStrip), fillShape(sf::TrianglesFan), handlesLines(sf::Lines),
+      fillColor(fill), borderColor(border){
+        pTop.pos    = sf::Vector2f(center.x, center.y - radius);
+        pRight.pos  = sf::Vector2f(center.x + radius, center.y);
+        pBottom.pos = sf::Vector2f(center.x, center.y + radius);
+        pLeft.pos   = sf::Vector2f(center.x - radius, center.y);
+
+        pTop.initVisual();
+        pRight.initVisual();
+        pBottom.initVisual();
+        pLeft.initVisual();
+
+        selectedPoint = &pTop;
+        pTop.visualNode.setFillColor(sf::Color::Red);
+
+        update();
+    }
+
+    void update() {
+        outline.clear();
+        fillShape.clear();
+        handlesLines.clear();
+        handleDots.clear();
+
+        pTop.updateVisualPosition();
+        pRight.updateVisualPosition();
+        pBottom.updateVisualPosition();
+        pLeft.updateVisualPosition();
+
+        // Tangentes individuales usando su respectivo valor de 'k'
+        sf::Vector2f tangentTop1   = rotateVector(sf::Vector2f(-(radius * kTop), 0.f), rotTop);
+        sf::Vector2f tangentTop2   = rotateVector(sf::Vector2f( (radius * kTop), 0.f), rotTop);
+
+        sf::Vector2f tangentRight1 = rotateVector(sf::Vector2f(0.f, -(radius * kRight)), rotRight);
+        sf::Vector2f tangentRight2 = rotateVector(sf::Vector2f(0.f,  (radius * kRight)), rotRight);
+
+        sf::Vector2f tangentBottom1= rotateVector(sf::Vector2f( (radius * kBottom), 0.f), rotBottom);
+        sf::Vector2f tangentBottom2= rotateVector(sf::Vector2f(-(radius * kBottom), 0.f), rotBottom);
+
+        sf::Vector2f tangentLeft1  = rotateVector(sf::Vector2f(0.f,  (radius * kLeft)), rotLeft);
+        sf::Vector2f tangentLeft2  = rotateVector(sf::Vector2f(0.f, -(radius * kLeft)), rotLeft);
+
+        sf::Vector2f hTopLeft     = pTop.pos + tangentTop1;
+        sf::Vector2f hTopRight    = pTop.pos + tangentTop2;
+
+        sf::Vector2f hRightUp     = pRight.pos + tangentRight1;
+        sf::Vector2f hRightDown   = pRight.pos + tangentRight2;
+
+        sf::Vector2f hBottomRight = pBottom.pos + tangentBottom1;
+        sf::Vector2f hBottomLeft  = pBottom.pos + tangentBottom2;
+
+        sf::Vector2f hLeftDown    = pLeft.pos + tangentLeft1;
+        sf::Vector2f hLeftUp      = pLeft.pos + tangentLeft2;
+
+        addHandleVisual(pTop.pos, hTopLeft);
+        addHandleVisual(pTop.pos, hTopRight);
+        addHandleVisual(pRight.pos, hRightUp);
+        addHandleVisual(pRight.pos, hRightDown);
+        addHandleVisual(pBottom.pos, hBottomRight);
+        addHandleVisual(pBottom.pos, hBottomLeft);
+        addHandleVisual(pLeft.pos, hLeftDown);
+        addHandleVisual(pLeft.pos, hLeftUp);
+
+        std::vector<sf::Vector2f> curvePoints;
+
+        // Curva 1: Top -> Right
+        for (int i = 0; i <= pointsPerSegment; i++) {
+            float t = (float)i / pointsPerSegment;
+            curvePoints.push_back(calculateBezier(pTop.pos, hTopRight, hRightUp, pRight.pos, t));
+        }
+
+        // Curva 2: Right -> Bottom
+        for (int i = 1; i <= pointsPerSegment; i++) {
+            float t = (float)i / pointsPerSegment;
+            curvePoints.push_back(calculateBezier(pRight.pos, hRightDown, hBottomRight, pBottom.pos, t));
+        }
+
+        // Curva 3: Bottom -> Left
+        for (int i = 1; i <= pointsPerSegment; i++) {
+            float t = (float)i / pointsPerSegment;
+            curvePoints.push_back(calculateBezier(pBottom.pos, hBottomLeft, hLeftDown, pLeft.pos, t));
+        }
+
+        // Curva 4: Left -> Top
+        for (int i = 1; i <= pointsPerSegment; i++) {
+            float t = (float)i / pointsPerSegment;
+            curvePoints.push_back(calculateBezier(pLeft.pos, hLeftUp, hTopLeft, pTop.pos, t));
+        }
+
+        // Relleno interior plomo (usando un centro aproximado con el promedio de los puntos)
+        sf::Vector2f center(
+            (pTop.pos.x + pRight.pos.x + pBottom.pos.x + pLeft.pos.x) / 4.f,
+            (pTop.pos.y + pRight.pos.y + pBottom.pos.y + pLeft.pos.y) / 4.f
+        );
+        fillShape.append(sf::Vertex(center, fillColor)); // Color plomo translúcido
+        for (const auto& pt : curvePoints) {
+            fillShape.append(sf::Vertex(pt, fillColor));
+        }
+        fillShape.append(sf::Vertex(curvePoints[0], fillColor)); // Cerrar abanico
+
+        // Contorno grueso
+        for (size_t i = 0; i < curvePoints.size(); i++) {
+            sf::Vector2f lastP = (i == 0) ? (curvePoints[0] + (curvePoints[0] - curvePoints[1])) 
+                                          : curvePoints[i - 1];
+            outline = appendThickVertexCircle(curvePoints[i], lastP, thickness, outline,borderColor);
+        }
+    }
+
+    void addHandleVisual(sf::Vector2f origin, sf::Vector2f handlePos) {
+        handlesLines.append(sf::Vertex(origin, sf::Color(150, 150, 150, 200)));
+        handlesLines.append(sf::Vertex(handlePos, sf::Color(150, 150, 150, 200)));
+        
+        sf::RectangleShape dot;
+        dot.setOrigin(4.f, 4.f);
+        dot.setSize(sf::Vector2f(5.f, 5.f));
+        dot.setPosition(handlePos);
+        dot.setFillColor(sf::Color(0, 180, 255));
+        handleDots.push_back(dot);
+    }
+
+    void selectPoint(ControlPointCicle* pt) {
+        pTop.visualNode.setFillColor(sf::Color::Blue);
+        pRight.visualNode.setFillColor(sf::Color::Blue);
+        pBottom.visualNode.setFillColor(sf::Color::Blue);
+        pLeft.visualNode.setFillColor(sf::Color::Blue);
+
+        selectedPoint = pt;
+        if (selectedPoint) {
+            selectedPoint->visualNode.setFillColor(sf::Color::Red);
+        }
+    }
+
+    void draw(sf::RenderTarget& target) {
+        target.draw(fillShape);
+        target.draw(outline);
+        target.draw(handlesLines);
+        for (auto& dot : handleDots) target.draw(dot);
+        target.draw(pTop.visualNode);
+        target.draw(pRight.visualNode);
+        target.draw(pBottom.visualNode);
+        target.draw(pLeft.visualNode);
+    }
+};
+
+//cubic bezier
 sf::VertexArray appendThickVertex(sf::Vector2f p, sf::Vector2f lastP, float thickness, 
   sf::VertexArray outline, sf::Color color) {
     sf::Vector2f tangent = p - lastP;
@@ -1336,6 +1565,9 @@ int main() {
   fullBody[4]->update();
   //creando una lista de keyframes
   std::vector<std::unique_ptr<QuadraticBezier>> onionBody;
+  //circleRig
+  std::unique_ptr<CircleBezier4Points> circleRig = std::make_unique<CircleBezier4Points>(sf::Vector2f(320.f, 240.f) , sf::Color(180,180,180,220),sf::Color::Black);
+
   std::vector<AssetControl> globalAssets; // <--- Así de simple, sin punteros dinámicos
   std::string selectedAssetTarget = "";
   onionBody.push_back(std::make_unique<QuadraticBezier>(sf::Vector2f(70, 120), sf::Vector2f(120, 180), sf::Color(100, 100, 100), sf::Color(100, 100, 100)));
@@ -2674,9 +2906,9 @@ int main() {
           }else if (event.key.code == sf::Keyboard::Enter){
             if (create_circle_bezier){
                 create_circle_bezier = false;
-                std::cout << fillR << fillG << fillB << std::endl; 
-                std::cout <<outlineR<<  outlineG<<outlineB<< std::endl; 
-                
+                circleRig->borderColor = sf::Color(outlineR,outlineG,outlineB);
+                circleRig->fillColor = sf::Color(fillR,fillG,fillB);
+                circleRig->update();
             }else{
                 selectMode = 1;
                 if (preSelect){
@@ -5047,6 +5279,7 @@ int main() {
         infoText.setString("RGB: (" + std::to_string(activeR) + ", " + std::to_string(activeG) + ", " + std::to_string(activeB) + ")");
         window.draw(infoText);
     }
+    circleRig->draw(window);
     window.display();
   }
   return 0;
