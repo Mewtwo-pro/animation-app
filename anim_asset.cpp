@@ -239,15 +239,17 @@ public:
         }
     }
 
-    void draw(sf::RenderTarget& target) {
+    void draw(sf::RenderTarget& target, bool mostrarControles = true) {
         target.draw(fillShape);
         target.draw(outline);
-        target.draw(handlesLines);
-        for (auto& dot : handleDots) target.draw(dot);
-        target.draw(pTop.visualNode);
-        target.draw(pRight.visualNode);
-        target.draw(pBottom.visualNode);
-        target.draw(pLeft.visualNode);
+        if (mostrarControles){
+            target.draw(handlesLines);
+            for (auto& dot : handleDots) target.draw(dot);
+            target.draw(pTop.visualNode);
+            target.draw(pRight.visualNode);
+            target.draw(pBottom.visualNode);
+            target.draw(pLeft.visualNode);
+        }
     }
 };
 
@@ -1121,19 +1123,190 @@ struct dataAssetKeyframe {
 struct AssetControl {
     std::string name;
     sf::RectangleShape shape;
-    
     // Lista de keyframes visuales en el timeline para este asset específico
     std::map<float, sf::RectangleShape> assetKeylist;
     
     // Datos guardados por posición de fotograma para este asset
     std::map<float, dataAssetKeyframe> assetDataList;
 };
+void newKeyCurrentAsset(const sf::RectangleShape& currentFrame, 
+  AssetControl* currentAsset) {
+    
+    if (!currentAsset) return;
+
+    auto posCurrentk = currentFrame.getPosition();
+    float framePos = posCurrentk.x;
+
+    // Obter os dados atuais de transformação da forma (shape) do asset[cite: 1]
+    dataAssetKeyframe kData = {
+        currentAsset->shape.getPosition().x,
+        currentAsset->shape.getPosition().y,
+        currentAsset->shape.getRotation(),
+        currentAsset->shape.getScale().x,
+        currentAsset->shape.getScale().y
+    };
+
+    // Verificar se já existe um keyframe neste frame exato para este asset[cite: 1]
+    auto it = currentAsset->assetDataList.find(framePos);
+
+    if (it != currentAsset->assetDataList.end()) {
+        // Se já existe, atualizamos os valores de posição, rotação e escala[cite: 1]
+        it->second = kData;
+    } else {
+        // Se não existe, criamos um novo registro de dados[cite: 1]
+        currentAsset->assetDataList[framePos] = kData;
+
+        // Criar a barra visual indicadora no timeline do asset (cor laranja)[cite: 1]
+        sf::RectangleShape key(sf::Vector2f(3, 25));
+        key.setPosition(framePos, currentFrame.getPosition().y);
+        key.setFillColor(sf::Color(255, 165, 0)); 
+        currentAsset->assetKeylist[framePos] = key;
+    }
+}
+void updateCurrentAsset(AssetControl* currentAsset, float framePos) {
+    if (!currentAsset) return;
+
+    // Busca os dados do asset no fotograma atual
+    auto it = currentAsset->assetDataList.find(framePos);
+    if (it != currentAsset->assetDataList.end()) {
+        const auto& keyData = it->second;
+
+        // Aplica os valores salvos de posição, rotação e escala ao shape do asset
+        currentAsset->shape.setPosition(keyData.x, keyData.y);
+        currentAsset->shape.setRotation(keyData.rotation);
+        currentAsset->shape.setScale(keyData.scaleX, keyData.scaleY);
+    }
+}
+void updatePosAllAssets(std::vector<AssetControl>& globalAssets, float framePos) {
+    for (auto& asset : globalAssets) {
+        // Busca si el asset tiene un keyframe registrado en esta posición exacta
+        auto it = asset.assetDataList.find(framePos);
+        if (it != asset.assetDataList.end()) {
+            const auto& keyData = it->second;
+
+            // Actualiza la posición, rotación y escala de la forma del asset
+            asset.shape.setPosition(keyData.x, keyData.y);
+            asset.shape.setRotation(keyData.rotation);
+            asset.shape.setScale(keyData.scaleX, keyData.scaleY);
+        }
+    }
+}
+struct CopiedPoseRangeFrame {
+    float frameOffset; // Distancia en frames respecto a start_range
+    std::vector<CopiedControl> pose;
+    sf::Vector2f headPos;
+    float headRadius;
+};
+
+struct CopiedPoseRangeData {
+    bool hasData = false;
+    float originalDuration = 0.f;
+    std::vector<CopiedPoseRangeFrame> frames;
+};
+
+// Variable global para guardar el rango copiado
+CopiedPoseRangeData copiedPoseRange;
+struct circleBezierData {
+ float pTop_x , pTop_y;
+ float pBottom_x , pBottom_y;
+ float pLeft_x , pLeft_y;
+ float pRight_x , pRight_y;
+ float radius ;
+ float kTop, kBottom;
+ float kRight, kLeft;
+ float rotTop, rotBottom;
+ float rotLeft, rotRight;
+ bool visible = true;
+}; 
+struct circleRigData {
+    std::string name;
+    std::unique_ptr<CircleBezier4Points> circleRig; 
+    std::map <float, circleBezierData> keyframeData;
+    bool visible = true;
+    void setPosData(float frame){
+        circleBezierData posData;
+        posData.visible = visible;
+        posData.pTop_x = circleRig->pTop.pos.x; 
+        posData.pTop_y = circleRig->pTop.pos.y; 
+        posData.pBottom_x = circleRig->pBottom.pos.x; 
+        posData.pBottom_y = circleRig->pBottom.pos.y; 
+        posData.pLeft_x = circleRig->pLeft.pos.x; 
+        posData.pLeft_y = circleRig->pLeft.pos.y; 
+        posData.pRight_x = circleRig->pRight.pos.x; 
+        posData.pRight_y = circleRig->pRight.pos.y; 
+        posData.radius= circleRig->radius; 
+        posData.kTop= circleRig->kTop; 
+        posData.kBottom= circleRig->kBottom; 
+        posData.kLeft= circleRig->kLeft; 
+        posData.kRight= circleRig->kRight; 
+        posData.rotTop= circleRig->rotTop; 
+        posData.rotBottom= circleRig->rotBottom; 
+        posData.rotLeft= circleRig->rotLeft; 
+        posData.rotRight= circleRig->rotRight; 
+        keyframeData.insert({frame,posData});
+    }
+};
+void newKeyCircleBezier(float frameValue ,circleRigData*& currentCircleRig ){
+   auto it = currentCircleRig->keyframeData.find(frameValue); 
+   //si ya existe un key lo actualizamos
+   if (it != currentCircleRig->keyframeData.end()){
+     circleBezierData posData;
+     posData.pTop_x = currentCircleRig->circleRig->pTop.pos.x; 
+     posData.pTop_y = currentCircleRig->circleRig->pTop.pos.y; 
+     posData.pBottom_x = currentCircleRig->circleRig->pBottom.pos.x; 
+     posData.pBottom_y = currentCircleRig->circleRig->pBottom.pos.y; 
+     posData.pLeft_x = currentCircleRig->circleRig->pLeft.pos.x; 
+     posData.pLeft_y = currentCircleRig->circleRig->pLeft.pos.y; 
+     posData.pRight_x = currentCircleRig->circleRig->pRight.pos.x; 
+     posData.pRight_y = currentCircleRig->circleRig->pRight.pos.y; 
+    posData.radius= currentCircleRig->circleRig->radius; 
+    posData.kTop= currentCircleRig->circleRig->kTop; 
+    posData.kBottom= currentCircleRig->circleRig->kBottom; 
+    posData.kLeft= currentCircleRig->circleRig->kLeft; 
+    posData.kRight= currentCircleRig->circleRig->kRight; 
+    posData.rotTop= currentCircleRig->circleRig->rotTop; 
+    posData.rotBottom= currentCircleRig->circleRig->rotBottom; 
+    posData.rotLeft= currentCircleRig->circleRig->rotLeft; 
+    posData.rotRight= currentCircleRig->circleRig->rotRight; 
+    posData.visible = currentCircleRig->visible;
+     it->second = posData; 
+   }else{
+     //creamos un nuevo key 
+     currentCircleRig->setPosData(frameValue);
+   }
+}
+void updatePosCircleBezier(float frameValue , circleRigData& circleRigDatax){
+  auto it = circleRigDatax.keyframeData.find(frameValue);
+  if (it != circleRigDatax.keyframeData.end()){
+     circleRigDatax.circleRig->pTop.pos.x = it->second.pTop_x; 
+     circleRigDatax.circleRig->pTop.pos.y  = it->second.pTop_y;   
+     circleRigDatax.circleRig->pBottom.pos.x  = it->second.pBottom_x;  
+     circleRigDatax.circleRig->pBottom.pos.y = it->second.pBottom_y;  
+     circleRigDatax.circleRig->pLeft.pos.x = it->second.pLeft_x;  
+     circleRigDatax.circleRig->pLeft.pos.y = it->second.pLeft_y;  
+     circleRigDatax.circleRig->pRight.pos.x = it->second.pRight_x;  
+     circleRigDatax.circleRig->pRight.pos.y = it->second.pRight_y;  
+     circleRigDatax.visible = it->second.visible;
+     circleRigDatax.circleRig->kTop= it->second.kTop;
+     circleRigDatax.circleRig->kBottom= it->second.kBottom;
+     circleRigDatax.circleRig->kRight= it->second.kRight;
+     circleRigDatax.circleRig->kLeft= it->second.kLeft;
+     circleRigDatax.circleRig->radius= it->second.radius;
+     circleRigDatax.circleRig->rotTop= it->second.rotTop;
+     circleRigDatax.circleRig->rotBottom= it->second.rotBottom;
+     circleRigDatax.circleRig->rotLeft= it->second.rotLeft;
+     circleRigDatax.circleRig->rotRight= it->second.rotRight;
+     circleRigDatax.circleRig->update(); 
+  }
+} 
+
 bool cargarAnimacion(
     const std::string& ruta,
     std::map<float, sf::RectangleShape>& frameKeylist,
     std::map<float, dataBodyKey>& bodyKeyList,
     std::map<float, dataElipce>& dataHead,
     std::vector<AssetControl>& globalAssets,
+    std::vector<circleRigData>& circleRigList,
     std::map<float, data_audio>& audioKeyList,
     std::map<float, sf::RectangleShape>& loopKeylist,
     sf::RectangleShape& currentFrame,
@@ -1157,6 +1330,7 @@ bool cargarAnimacion(
         frameKeylist.clear();
         bodyKeyList.clear();
         dataHead.clear();
+        circleRigList.clear();
         globalAssets.clear();
         audioKeyList.clear();
         loopKeylist.clear();
@@ -1295,6 +1469,71 @@ bool cargarAnimacion(
                         itAsset->assetKeylist[pos] = assetKey;
                     }
                 }
+                // Datos de los Circle Bezier para este frame
+                if (frame.contains("circle")) {
+                    for (const auto& savedCircle : frame["circle"]) {
+                        std::string name = savedCircle.at("name").get<std::string>();
+
+                        // Buscar si ya existe el circleRig en la lista global
+                        auto itRig = std::find_if(
+                            circleRigList.begin(),
+                            circleRigList.end(),
+                            [&](const circleRigData& rig) {
+                                return rig.name == name;
+                            }
+                        );
+
+                        // Si no existe, lo creamos e inicializamos
+                        if (itRig == circleRigList.end()) {
+                            circleRigData newRig;
+                            newRig.name = name;
+                            
+                            // Posición de centro aproximada inicial para construir el objeto
+                            sf::Vector2f initialCenter(
+                                savedCircle.at("pTop_x").get<float>(),
+                                savedCircle.at("pTop_y").get<float>() + savedCircle.at("radius").get<float>()
+                            );
+                            sf::Color fillColor(
+                            savedCircle.value("fillR", 160),
+                            savedCircle.value("fillG", 160),
+                            savedCircle.value("fillB", 160),
+                            savedCircle.value("fillA", 200)
+                            );
+                            sf::Color borderColor(
+                                savedCircle.value("borderR", 0),
+                                savedCircle.value("borderG", 0),
+                                savedCircle.value("borderB", 0),
+                                savedCircle.value("borderA", 255)
+                            );
+                            newRig.circleRig = std::make_unique<CircleBezier4Points>(initialCenter, fillColor, borderColor);
+                            circleRigList.push_back(std::move(newRig));
+                            itRig = --circleRigList.end();                           
+                        }
+
+                        // Rellenar los datos del keyframe
+                        circleBezierData cData;
+                        cData.pTop_x = savedCircle.at("pTop_x").get<float>();
+                        cData.pTop_y = savedCircle.at("pTop_y").get<float>();
+                        cData.pBottom_x = savedCircle.at("pBottom_x").get<float>();
+                        cData.pBottom_y = savedCircle.at("pBottom_y").get<float>();
+                        cData.pLeft_x = savedCircle.at("pLeft_x").get<float>();
+                        cData.pLeft_y = savedCircle.at("pLeft_y").get<float>();
+                        cData.pRight_x = savedCircle.at("pRight_x").get<float>();
+                        cData.pRight_y = savedCircle.at("pRight_y").get<float>();
+                        cData.radius = savedCircle.at("radius").get<float>();
+                        cData.kTop = savedCircle.at("kTop").get<float>();
+                        cData.kBottom = savedCircle.at("kBottom").get<float>();
+                        cData.kRight = savedCircle.at("kRight").get<float>();
+                        cData.kLeft = savedCircle.at("kLeft").get<float>();
+                        cData.rotTop = savedCircle.at("rotTop").get<float>();
+                        cData.rotBottom = savedCircle.at("rotBottom").get<float>();
+                        cData.rotLeft = savedCircle.at("rotLeft").get<float>();
+                        cData.rotRight = savedCircle.at("rotRight").get<float>();
+                        cData.visible = savedCircle.value("visible",true);
+
+                        itRig->keyframeData[pos] = cData;
+                    }
+                }
             }
         }
 
@@ -1329,10 +1568,8 @@ bool cargarAnimacion(
                 audioKeyList[pos] = std::move(audio);
             }
         }
-
         // 7. Restaurar los marcadores del loop
         // Este bloque supone que cada elemento de "markers"
-        // contiene un campo "position".
         if (data.contains("markers")) {
             for (const auto& saved : data["markers"]) {
                 float pos =
@@ -1363,17 +1600,10 @@ bool cargarAnimacion(
                 );
                 head.setRadius(itHead->second.radius);
             }
+            for (auto& circle : circleRigList){
+                updatePosCircleBezier(firstFrame , circle);
+            }
         }
-        /*
-        std::cout << "Animacion cargada correctamente: "
-                  << ruta << '\n';
-
-        std::cout << "Frames: " << frameKeylist.size()
-                  << " | Cuerpo: " << bodyKeyList.size()
-                  << " | Assets: " << globalAssets.size()
-                  << " | Audios: " << audioKeyList.size()
-                  << '\n';
-        */
         return true;
 
     } catch (const std::exception& e) {
@@ -1382,83 +1612,8 @@ bool cargarAnimacion(
         return false;
     }
 }
-void newKeyCurrentAsset(const sf::RectangleShape& currentFrame, 
-  AssetControl* currentAsset) {
-    
-    if (!currentAsset) return;
 
-    auto posCurrentk = currentFrame.getPosition();
-    float framePos = posCurrentk.x;
 
-    // Obter os dados atuais de transformação da forma (shape) do asset[cite: 1]
-    dataAssetKeyframe kData = {
-        currentAsset->shape.getPosition().x,
-        currentAsset->shape.getPosition().y,
-        currentAsset->shape.getRotation(),
-        currentAsset->shape.getScale().x,
-        currentAsset->shape.getScale().y
-    };
-
-    // Verificar se já existe um keyframe neste frame exato para este asset[cite: 1]
-    auto it = currentAsset->assetDataList.find(framePos);
-
-    if (it != currentAsset->assetDataList.end()) {
-        // Se já existe, atualizamos os valores de posição, rotação e escala[cite: 1]
-        it->second = kData;
-    } else {
-        // Se não existe, criamos um novo registro de dados[cite: 1]
-        currentAsset->assetDataList[framePos] = kData;
-
-        // Criar a barra visual indicadora no timeline do asset (cor laranja)[cite: 1]
-        sf::RectangleShape key(sf::Vector2f(3, 25));
-        key.setPosition(framePos, currentFrame.getPosition().y);
-        key.setFillColor(sf::Color(255, 165, 0)); 
-        currentAsset->assetKeylist[framePos] = key;
-    }
-}
-void updateCurrentAsset(AssetControl* currentAsset, float framePos) {
-    if (!currentAsset) return;
-
-    // Busca os dados do asset no fotograma atual
-    auto it = currentAsset->assetDataList.find(framePos);
-    if (it != currentAsset->assetDataList.end()) {
-        const auto& keyData = it->second;
-
-        // Aplica os valores salvos de posição, rotação e escala ao shape do asset
-        currentAsset->shape.setPosition(keyData.x, keyData.y);
-        currentAsset->shape.setRotation(keyData.rotation);
-        currentAsset->shape.setScale(keyData.scaleX, keyData.scaleY);
-    }
-}
-void updatePosAllAssets(std::vector<AssetControl>& globalAssets, float framePos) {
-    for (auto& asset : globalAssets) {
-        // Busca si el asset tiene un keyframe registrado en esta posición exacta
-        auto it = asset.assetDataList.find(framePos);
-        if (it != asset.assetDataList.end()) {
-            const auto& keyData = it->second;
-
-            // Actualiza la posición, rotación y escala de la forma del asset
-            asset.shape.setPosition(keyData.x, keyData.y);
-            asset.shape.setRotation(keyData.rotation);
-            asset.shape.setScale(keyData.scaleX, keyData.scaleY);
-        }
-    }
-}
-struct CopiedPoseRangeFrame {
-    float frameOffset; // Distancia en frames respecto a start_range
-    std::vector<CopiedControl> pose;
-    sf::Vector2f headPos;
-    float headRadius;
-};
-
-struct CopiedPoseRangeData {
-    bool hasData = false;
-    float originalDuration = 0.f;
-    std::vector<CopiedPoseRangeFrame> frames;
-};
-
-// Variable global para guardar el rango copiado
-CopiedPoseRangeData copiedPoseRange;
 int main() {
   float altura_ventana= 750.f; 
   float ancho_ventana= 455.f; 
@@ -1476,6 +1631,7 @@ int main() {
   float maxCreatedOffset = 0;
   bool idxTimeline = false;
   sf::RenderWindow window(sf::VideoMode(ancho_ventana,altura_ventana), "Bézier: Rotación de Manecillas - SFML");
+  window.setFramerateLimit(60); // <--- Limita la aplicación a 60 FPS estables
   sf::View viewEscena(sf::FloatRect(0, 0, ancho_scena, altura_scena));
   sf::View viewTimeline(sf::FloatRect(0, 0, ancho_timeline, altura_timeline));
   sf::View viewInfo(sf::FloatRect(0, 0, ancho_info, altura_info));
@@ -1517,9 +1673,10 @@ int main() {
   drawBuscador.setOutlineColor(sf::Color(120,120,120));
   drawBuscador.setPosition(0.f, 0.f);    
   float forceValue = 5.f;
+  float tangentStep = 0.05f;
   int moveState = 1;
   bool mark_loop = false;
-  float tangentStep = 0.05f;
+  int selectTarget = 0;
   sf::CircleShape head;
   head.setRadius(50);
   head.setFillColor(sf::Color(92,92,92));
@@ -1540,6 +1697,10 @@ int main() {
   headOnion.setFillColor(sf::Color(120,120,120,80));
   headOnion.setPosition(20, 20);
   sf::RectangleShape currentFrame(sf::Vector2f(10,30));
+  sf::RectangleShape keyCirleBezier(sf::Vector2f(3,25));
+  keyCirleBezier.setFillColor(sf::Color(80,180,180));
+  keyCirleBezier.setPosition(5,0);
+
   float forceMove_frame = 20.f;
   currentFrame.setFillColor(sf::Color(80,250,80,100));
   currentFrame.setPosition(5,0);
@@ -1560,14 +1721,14 @@ int main() {
   //actualizar el puntero cada ves q modificar globalAssets 
   //por ejemplo al agreagr un nuevo asset o eliminar un asset de globalAssets
   AssetControl* currentAsset= nullptr;
+  circleRigData* currentCircleRig= nullptr;
     
   fullBody[4]->selectedPoint = &fullBody[4]->pCenter;
   fullBody[4]->update();
   //creando una lista de keyframes
   std::vector<std::unique_ptr<QuadraticBezier>> onionBody;
   //circleRig
-  std::unique_ptr<CircleBezier4Points> circleRig = std::make_unique<CircleBezier4Points>(sf::Vector2f(320.f, 240.f) , sf::Color(180,180,180,220),sf::Color::Black);
-
+  std::vector<circleRigData> circleRigList;
   std::vector<AssetControl> globalAssets; // <--- Así de simple, sin punteros dinámicos
   std::string selectedAssetTarget = "";
   onionBody.push_back(std::make_unique<QuadraticBezier>(sf::Vector2f(70, 120), sf::Vector2f(120, 180), sf::Color(100, 100, 100), sf::Color(100, 100, 100)));
@@ -1632,7 +1793,7 @@ int main() {
   std::vector<std::string> names;
 
   std::string query = "";
-  int selectAudio = 0;
+  int selectBuscador = 0;
   bool openBuscador = false;
   bool justOpenBuscador = false;
   int selectedResult = 0;
@@ -1640,6 +1801,8 @@ int main() {
   std::string select_action = "none";
   std::string current_file_save = "none";
   bool ejecutar_action = false;
+  int name_input_mode  = 0;
+  std::string name_input_value = "none";
   bool update_lista_buscador = true;
   bool zoomMode = false;
   bool multiSelectMode = false;
@@ -1668,91 +1831,98 @@ int main() {
     bool create_circle_bezier = false;
   while (window.isOpen()) {
     sf::Event event;
-    filteredResults.clear();
-    std::string lowerQuery = toLower(query);
-    // Si estamos reproduciendo el preview por los saltos de frame, evaluamos si ya pasaron 0.5s
-    if (update_lista_buscador){
-      update_lista_buscador = false;
-      if (selectAudio == 1){
-        names = loadAudioFiles();
-      }else if (selectAudio == 2 ){
-        names = loadAnimationFile();
-      }else if (selectAudio == 4 ){
-        names.clear();
-        for (const auto& asset : globalAssets) {
-            // Evitamos agregar nombres repetidos a la lista de sugerencias
-            if (std::find(names.begin(), names.end(), asset.name) == names.end()) {
-                names.push_back(asset.name);
-            }
-        }
-      }else if (selectAudio == 3 ){
-        names = loadAnimationFile();
-      }else if (selectAudio == 5){
+    if (openBuscador){
+        filteredResults.clear();
+        std::string lowerQuery = toLower(query);
+        // Si estamos reproduciendo el preview por los saltos de frame, evaluamos si ya pasaron 0.5s
+        if (update_lista_buscador){
+          update_lista_buscador = false;
+          if (selectBuscador == 1){
+            names = loadAudioFiles();
+          }else if (selectBuscador == 2 ){
+            names = loadAnimationFile();
+          }else if (selectBuscador == 4 ){
+            //crear un nuevo 
             names.clear();
-            // Agregamos la opción por defecto para regresar al personaje
+            for (const auto& asset : globalAssets) {
+                // Evitamos agregar nombres repetidos a la lista de sugerencias
+                if (std::find(names.begin(), names.end(), asset.name) == names.end()) {
+                    names.push_back(asset.name);
+                }
+            }
+            for (const auto& circle : circleRigList){
+                names.push_back(circle.name);
+            }
+          }else if (selectBuscador == 3 ){
+            names = loadAnimationFile();
+          }else if (selectBuscador == 5){
+            //select asset
+            names.clear();
             names.push_back("[ Personaje Principal ]");
-            
-            // Agregamos los nombres de todos los assets creados
             for (const auto& asset : globalAssets) {
                 names.push_back(asset.name);
             }
-      }else{
-        names = {
-            "play Render", "load animation", "save animation","aMid pos", 
-            "Scene render", "audio keyframe","add frames",
-            "paste range" , "aOnion","rOnion", "delete range", "right move",
-            "volumen audio","left move", "marks key","delete mark","Mid range",
-            "loop play" , "path ctrl", "zoom x4","front part", "range render",
-            "aPath" , "aZoom x2", "flip pose", "mirror pose","multiseleccion",
-            "copy pose" , "paste pose" , "paste mirror" , "extend audio",
-            "remove bloque frames" , "slow x2", "remove key","move 10",
-            "retime x2", "retime /2" , "add assets" , "select asset", 
-            "pin controles" , "pin move range", "copy pose range", "paste pose range",
-            "paste pose range mirror", "head pin", "circle bezier"
-        };
-      }
-    }
-    if (!query.empty()){
-        for (const auto& name : names){
+            for (const auto& circle : circleRigList){
+                names.push_back(circle.name);
+            }
+          }else{
+            names = {
+                "play Render", "load animation", "save animation","aMid pos", 
+                "Scene render", "audio keyframe","add frames",
+                "paste range" , "aOnion","rOnion", "delete range", "right move",
+                "volumen audio","left move", "marks key","delete mark","Mid range",
+                "loop play" , "path ctrl", "zoom x4","front part", "range render",
+                "aPath" , "aZoom x2", "flip pose", "mirror pose","multiseleccion",
+                "copy pose" , "paste pose" , "paste mirror" , "extend audio",
+                "remove bloque frames" , "slow x2", "remove key","move 10",
+                "retime x2", "retime /2" , "add assets" , "select asset", 
+                "pin controles" , "pin move range", "copy pose range", "paste pose range",
+                "paste pose range mirror", "head pin", "circle bezier","visibility circle",
+                "set range render"
+            };
+          }
+        }
+        if (!query.empty()){
+            for (const auto& name : names){
 
-            if (toLower(name).find(lowerQuery) != std::string::npos){
-                filteredResults.push_back(name);
+                if (toLower(name).find(lowerQuery) != std::string::npos){
+                    filteredResults.push_back(name);
+                }
             }
         }
-    }
-    
-    if (selectedResult >= (int)filteredResults.size()){
-        selectedResult = 0;
-    }
-    // --- Cálculo dinámico de la altura ---
-    size_t limit = std::min(filteredResults.size(), (size_t)4);
-    float dynamicHeight = 65.0f;
+        
+        if (selectedResult >= (int)filteredResults.size()){
+            selectedResult = 0;
+        }
+        // --- Cálculo dinámico de la altura ---
+        size_t limit = std::min(filteredResults.size(), (size_t)4);
+        float dynamicHeight = 65.0f;
 
-    if (!filteredResults.empty()) {
-        dynamicHeight = 75.0f + (limit * 35.0f);
+        if (!filteredResults.empty()) {
+            dynamicHeight = 75.0f + (limit * 35.0f);
+        }
+        // Tamaño del rectángulo
+        drawBuscador.setSize(
+            sf::Vector2f(ancho_buscador, dynamicHeight)
+        );
+        // Tamaño de la vista
+        viewBuscador.setSize(
+            ancho_buscador,
+            dynamicHeight
+        );
+        // Mantener el origen de la vista en 0,0
+        viewBuscador.setCenter(
+            ancho_buscador / 2.f,
+            dynamicHeight / 2.f
+        );
+        // Posición y tamaño del viewport
+        viewBuscador.setViewport(sf::FloatRect(
+            50.f / ancho_ventana,
+            10.f / altura_ventana,
+            ancho_buscador / ancho_ventana,
+            dynamicHeight / altura_ventana
+        ));
     }
-    // Tamaño del rectángulo
-    drawBuscador.setSize(
-        sf::Vector2f(ancho_buscador, dynamicHeight)
-    );
-    // Tamaño de la vista
-    viewBuscador.setSize(
-        ancho_buscador,
-        dynamicHeight
-    );
-    // Mantener el origen de la vista en 0,0
-    viewBuscador.setCenter(
-        ancho_buscador / 2.f,
-        dynamicHeight / 2.f
-    );
-    // Posición y tamaño del viewport
-    viewBuscador.setViewport(sf::FloatRect(
-        50.f / ancho_ventana,
-        10.f / altura_ventana,
-        ancho_buscador / ancho_ventana,
-        dynamicHeight / altura_ventana
-    ));
-
     while (window.pollEvent(event)) {
       if (event.type == sf::Event::Closed){
           window.close();
@@ -1825,11 +1995,8 @@ int main() {
               }
 
           }else if (event.key.code == sf::Keyboard::Enter){
-
-              // =========================================
-              // GUARDAR ANIMACIÓN
-              // =========================================
-              if (selectAudio == 2){
+              //Pin: GUARDAR ANIMACIÓN
+              if (selectBuscador == 2){
                     if (!query.empty()){
 
                         std::string nombreArchivo = query;
@@ -1894,6 +2061,11 @@ int main() {
                         }
                     }
 
+                    for (const auto& circle : circleRigList) {
+                        for (const auto& [framePos, key] : circle.keyframeData) {
+                            allFrames.insert(framePos);
+                        }
+                    }
                     // =========================================
                     // 4. GUARDAR TODOS LOS KEYFRAMES
                     // =========================================
@@ -1948,13 +2120,9 @@ int main() {
 
                         for (const auto& asset : globalAssets) {
                             auto itAsset = asset.assetDataList.find(framePos);
-
                             if (itAsset == asset.assetDataList.end()) {
-                                continue;
-                            }
-
+                                continue;}
                             const auto& attr = itAsset->second;
-
                             frame["assets"].push_back({
                                 {"name", asset.name},
                                 {"x", attr.x},
@@ -1962,6 +2130,44 @@ int main() {
                                 {"rotation", attr.rotation},
                                 {"scaleX", attr.scaleX},
                                 {"scaleY", attr.scaleY}
+                            });
+                        }
+
+                        for (const auto& circle : circleRigList) {
+                            auto itAsset = circle.keyframeData.find(framePos);
+                            if (itAsset == circle.keyframeData.end()) {
+                                continue;}
+                            const auto& attr = itAsset->second;
+                            sf::Color fill = circle.circleRig->fillColor;
+                            sf::Color border = circle.circleRig->borderColor;
+                            frame["circle"].push_back({
+                                {"name", circle.name},
+                                {"pTop_x", attr.pTop_x},
+                                {"pTop_y", attr.pTop_y},
+                                {"pBottom_x", attr.pBottom_x},
+                                {"pBottom_y", attr.pBottom_y},
+                                {"pLeft_x", attr.pLeft_x},
+                                {"pLeft_y", attr.pLeft_y},
+                                {"pRight_x", attr.pRight_x},
+                                {"pRight_y", attr.pRight_y},
+                                {"kTop", attr.kTop},
+                                {"kBottom", attr.kBottom},
+                                {"kRight", attr.kRight},
+                                {"kLeft", attr.kLeft},
+                                {"radius", attr.radius},
+                                {"rotTop", attr.rotTop},
+                                {"rotBottom", attr.rotBottom},
+                                {"rotLeft", attr.rotLeft},
+                                {"rotRight", attr.rotRight}, 
+                                {"fillR", fill.r}, 
+                                {"fillG", fill.g}, 
+                                {"fillB", fill.b}, 
+                                {"fillA", fill.a}, 
+                                {"borderR", border.r}, 
+                                {"borderG", border.g}, 
+                                {"borderB", border.b}, 
+                                {"borderA", border.a}, 
+                                {"visible", attr.visible}
                             });
                         }
 
@@ -2037,122 +2243,138 @@ int main() {
 
                         // Cerrar el input
                         openBuscador = false;
-                        selectAudio = 0;
+                        selectBuscador = 0;
                         query.clear();
                         selectedResult = 0;
 
                     }
-              }else if (selectAudio == 5){
+              //Pin: seleccionar un asset
+              }else if (selectBuscador == 5){
                 if (!filteredResults.empty()){
                     // Obtenemos el nombre seleccionado de la lista filtrada
                     std::string elegido = filteredResults[selectedResult];
-
+                    ss.str("");
+                    ss.clear();
                     if (elegido == "[ Personaje Principal ]"){
                         moveState = 1;
-                        selectMode = 1;
+                        selectMode = 0;
                         // Volvemos a editar el cuerpo/personaje principal
                         selectedAssetTarget = ""; 
-                        
-                        ss.str("");
-                        ss.clear();
+                        selectTarget = 0; 
                         ss << "Modo activo: Personaje Principal";
                     } else {
                         // Seleccionamos el asset específico para editar sus keyframes y posición
-                        selectMode = 4;
-                        moveState = 3;
                         selectedAssetTarget = elegido; 
                         auto it = std::find_if(globalAssets.begin(), globalAssets.end(), [selectedAssetTarget](const AssetControl& ac){
                              return ac.name == selectedAssetTarget;
                         });
                         if (it != globalAssets.end()) {
-                             currentAsset= &(*it);
+                          currentAsset= &(*it);
+                          selectTarget = 1;
+                          selectMode = 4;
+                          moveState = 3;
+                          ss << "Modo Asset: " << it->name;
+                        }else{
+                            auto it = std::find_if(circleRigList.begin(), circleRigList.end() , [selectedAssetTarget](const circleRigData& ac){
+                              return ac.name == selectedAssetTarget;
+                            });
+                            if (it != circleRigList.end()){
+                              currentCircleRig = &(*it);
+                              selectTarget = 2;
+                              selectMode = 8;
+                              moveState = 2;
+                              ss << "Modo circle bezier: " << it->name;
+                            }else{
+                              ss << "no objetc con nombre" << selectedAssetTarget;
+                            }
                         }
-                        ss.str("");
-                        ss.clear();
-                        ss << "Modo activo Asset: " << it->name;
+                        
                     }
-
                     // Mostramos el mensaje en pantalla
                     setMensajeTime(ss, timeMensaje, viewTimeMensaje, mensajeClock);
 
                     // Cerramos el buscador y reseteamos estados
                     openBuscador = false;
-                    selectAudio = 0;
+                    selectBuscador = 0;
                     query.clear();
                     selectedResult = 0;
                 }
-              }else if (selectAudio == 4){ // Estado para nombrar el asset
-                    if (!query.empty()){
-                        std::string assetName = query;
+              //Pin: crear nuevo asset
+              }else if (selectBuscador == 4){ 
+                if (!query.empty()){
+                  std::string assetName = query;
+                  auto it = std::find_if(names.begin(), names.end(),[&assetName](const std::string& ac){
+                      return ac == assetName;
+                  });
+                  if (it != names.end()){
+                      ss.str("");
+                      ss.clear();
+                      ss<<"error : el name : " << assetName << "ya existe";
+                      setMensajeTime(ss , timeMensaje , viewTimeMensaje , mensajeClock); 
+                  }else{
+                    if (name_input_mode == 1){
+                        name_input_value = assetName; 
+                        create_circle_bezier = true; 
+                        name_input_mode = 0;
+                    }else{
+                          sf::RectangleShape newRect(sf::Vector2f(20.f, 30.f));
+                          newRect.setOrigin(10.f, 15.f); // Centro para rotar/escalar mejor
+                          newRect.setFillColor(sf::Color(92, 92, 50)); // Color distintivo para assets
+                          newRect.setPosition(180.f, 320.f); // Posición fija inicial en la escena
 
-                        // Verificar si ya existe un asset con ese nombre
-                        auto it = std::find_if(globalAssets.begin(), globalAssets.end(), [&assetName](const AssetControl& ac){
-                            return ac.name == assetName;
-                        });
+                          selectMode = 4;
+                          moveState = 3;
+                          selectTarget= 1;
+                          AssetControl nuevoAsset;
+                          nuevoAsset.name = assetName;
+                          nuevoAsset.shape = newRect;
 
-                        if (it != globalAssets.end()){
-                            // El asset ya existe: mostramos mensaje y no dejamos crearlo
-                            ss.str("");
-                            ss.clear();
-                            ss << "Error: El asset '" << assetName << "' ya existe :(";
-                            setMensajeTime(ss, timeMensaje, viewTimeMensaje, mensajeClock);
-                        } else {
-                            // El asset no existe: lo creamos
-                            sf::RectangleShape newRect(sf::Vector2f(20.f, 30.f));
-                            newRect.setOrigin(10.f, 15.f); // Centro para rotar/escalar mejor
-                            newRect.setFillColor(sf::Color(92, 92, 50)); // Color distintivo para assets
-                            newRect.setPosition(180.f, 320.f); // Posición fija inicial en la escena
+                          // Crear automáticamente su primer keyframe en el fotograma actual
+                          float framePos = currentFrame.getPosition().x;
+                          
+                          dataAssetKeyframe kData = {
+                              newRect.getPosition().x,
+                              newRect.getPosition().y,
+                              newRect.getRotation(),
+                              newRect.getScale().x,
+                              newRect.getScale().y
+                          };
+                          nuevoAsset.assetDataList[framePos] = kData;
 
-                            selectMode = 4;
-                            moveState = 3;
-                            AssetControl nuevoAsset;
-                            nuevoAsset.name = assetName;
-                            nuevoAsset.shape = newRect;
+                          // Crear la barrita visual en el timeline del asset
+                          sf::RectangleShape key(sf::Vector2f(3, 25));
+                          key.setPosition(framePos, currentFrame.getPosition().y);
+                          key.setFillColor(sf::Color(255, 165, 0)); // Color naranja para los keys de assets
+                          nuevoAsset.assetKeylist[framePos] = key;
 
-                            // Crear automáticamente su primer keyframe en el fotograma actual
-                            float framePos = currentFrame.getPosition().x;
-                            
-                            dataAssetKeyframe kData = {
-                                newRect.getPosition().x,
-                                newRect.getPosition().y,
-                                newRect.getRotation(),
-                                newRect.getScale().x,
-                                newRect.getScale().y
-                            };
-                            nuevoAsset.assetDataList[framePos] = kData;
+                          // Guardarlo en tu lista global de assets activos en la escena
+                          globalAssets.push_back(nuevoAsset);
 
-                            // Crear la barrita visual en el timeline del asset
-                            sf::RectangleShape key(sf::Vector2f(3, 25));
-                            key.setPosition(framePos, currentFrame.getPosition().y);
-                            key.setFillColor(sf::Color(255, 165, 0)); // Color naranja para los keys de assets
-                            nuevoAsset.assetKeylist[framePos] = key;
+                          // Opcionalmente, puedes hacer que se seleccione automáticamente al crearlo
+                          selectedAssetTarget = assetName;
+                          currentAsset = &globalAssets.back(); 
 
-                            // Guardarlo en tu lista global de assets activos en la escena
-                            globalAssets.push_back(nuevoAsset);
-
-                            // Opcionalmente, puedes hacer que se seleccione automáticamente al crearlo
-                            selectedAssetTarget = assetName;
-                            currentAsset = &globalAssets.back(); 
-
-                            ss.str("");
-                            ss.clear();
-                            ss << "Asset '" << assetName << "' creado con exito :)";
-                            setMensajeTime(ss, timeMensaje, viewTimeMensaje, mensajeClock);
-                        }
-
-                        openBuscador = false;
-                        selectAudio = 0;
-                        query.clear();
-                        selectedResult = 0;
+                          ss.str("");
+                          ss.clear();
+                          ss << "Asset '" << assetName << "' creado con exito :)";
+                          setMensajeTime(ss, timeMensaje, viewTimeMensaje, mensajeClock);
                     }
-              }else if (selectAudio == 1){
+                  }
+                
+                }
+                
+                openBuscador = false;
+                selectBuscador = 0;
+                query.clear();
+                selectedResult = 0;
+              }else if (selectBuscador == 1){
 
                   if (!filteredResults.empty()){
 
                       select_action = filteredResults[selectedResult];
 
                       openBuscador = false;
-                      selectAudio = 0;
+                      selectBuscador = 0;
 
                       std::string rutaCompleta =
                           "audio/" + select_action;
@@ -2203,9 +2425,9 @@ int main() {
                   }
 
               //cargar scena
-              }else if (selectAudio == 3){
+              }else if (selectBuscador == 3){
                 openBuscador = false;
-                selectAudio = 0;
+                selectBuscador = 0;
                 if (!filteredResults.empty()){
                   select_action = filteredResults[selectedResult];
                   
@@ -2218,6 +2440,7 @@ int main() {
                             bodyKeyList,
                             dataHead,
                             globalAssets,
+                            circleRigList,
                             audioKeyList,
                             loopKeylist,
                             currentFrame,
@@ -2319,6 +2542,11 @@ int main() {
                 }
             }
 
+            for (const auto& circle : circleRigList) {
+                for (const auto& [framePos, key] : circle.keyframeData) {
+                    allFrames.insert(framePos);
+                }
+            }
             // =========================================
             // 4. GUARDAR TODOS LOS KEYFRAMES
             // =========================================
@@ -2369,7 +2597,7 @@ int main() {
                 // -------------------------------------
                 // ASSETS
                 // -------------------------------------
-                frame["assets"] = json::array();
+               frame["assets"] = json::array();
 
                 for (const auto& asset : globalAssets) {
                     auto itAsset = asset.assetDataList.find(framePos);
@@ -2390,6 +2618,43 @@ int main() {
                     });
                 }
 
+                for (const auto& circle : circleRigList) {
+                    auto itAsset = circle.keyframeData.find(framePos);
+                    if (itAsset == circle.keyframeData.end()) {
+                        continue;}
+                    const auto& attr = itAsset->second;
+                    sf::Color fill = circle.circleRig->fillColor;
+                    sf::Color border = circle.circleRig->borderColor;
+                    frame["circle"].push_back({
+                        {"name", circle.name},
+                        {"pTop_x", attr.pTop_x},
+                        {"pTop_y", attr.pTop_y},
+                        {"pBottom_x", attr.pBottom_x},
+                        {"pBottom_y", attr.pBottom_y},
+                        {"pLeft_x", attr.pLeft_x},
+                        {"pLeft_y", attr.pLeft_y},
+                        {"pRight_x", attr.pRight_x},
+                        {"pRight_y", attr.pRight_y},
+                        {"kTop", attr.kTop},
+                        {"kBottom", attr.kBottom},
+                        {"kRight", attr.kRight},
+                        {"kLeft", attr.kLeft},
+                        {"radius", attr.radius},
+                        {"rotTop", attr.rotTop},
+                        {"rotBottom", attr.rotBottom},
+                        {"rotLeft", attr.rotLeft},
+                        {"rotRight", attr.rotRight}, 
+                        {"fillR", fill.r}, 
+                        {"fillG", fill.g}, 
+                        {"fillB", fill.b}, 
+                        {"fillA", fill.a}, 
+                        {"borderR", border.r}, 
+                        {"borderG", border.g}, 
+                        {"borderB", border.b}, 
+                        {"borderA", border.a}, 
+                        {"visible", attr.visible}
+                    });
+                }
                 data["frames"].push_back(frame);
             }
                     // =========================================
@@ -2462,7 +2727,7 @@ int main() {
 
                 // Cerrar el input
                 openBuscador = false;
-                selectAudio = 0;
+                selectBuscador = 0;
                 query.clear();
                 selectedResult = 0;
 
@@ -2497,6 +2762,11 @@ int main() {
                         asset.shape.setScale(keyData.scaleX, keyData.scaleY);
                     }
                 }
+                //actualizar posiciones de circle bezier 
+                for (auto& circle : circleRigList){
+                  updatePosCircleBezier(pos.x+ forceMove_frame, circle); 
+                } 
+                
                 //actuaizar view timeline
                 int frameInt = static_cast<int>(pos.x);
                 pageOffset = (static_cast<float>(frameInt / 450)) * 450.f;
@@ -2526,12 +2796,67 @@ int main() {
                 head_ctrl.setPosition(pos.x + forceValue , pos.y);
                 newKey(currentFrame, head, frameKeylist,dataHead,bodyKeyList,fullBody);
               }else if (selectMode== 3){
-                scaleAllBody(fullBody, head, 0.95f);
-                newKey(currentFrame, head, frameKeylist,dataHead,bodyKeyList,fullBody);
+                if (selectTarget == 0){
+                  scaleAllBody(fullBody, head, 0.95f);
+                  newKey(currentFrame, head, frameKeylist,dataHead,bodyKeyList,fullBody);
+                }else if (selectTarget == 2){
+                    if (currentCircleRig != nullptr && currentCircleRig->circleRig != nullptr) {
+                        currentCircleRig->circleRig->pLeft.pos.x -= forceValue;
+                        currentCircleRig->circleRig->pRight.pos.x += forceValue;
+                        currentCircleRig->circleRig->pBottom.pos.y += forceValue;
+                        currentCircleRig->circleRig->pTop.pos.y -= forceValue;
+                        currentCircleRig->circleRig->radius += forceValue;
+                        currentCircleRig->circleRig->update(); // Actualizamos los cálculos visuales
+                    }
+                }
               }else if (selectMode == 4){
                 auto pos = currentAsset->shape.getPosition();
                 currentAsset->shape.setPosition(pos.x + forceValue,pos.y);
                 newKeyCurrentAsset(currentFrame, currentAsset);
+              }else if (selectMode == 7){
+                if(currentCircleRig->circleRig->selectedPoint!= nullptr){
+                  currentCircleRig->circleRig->selectedPoint->pos.x += forceValue;
+                  currentCircleRig->circleRig->update();
+                  auto pos = currentFrame.getPosition();
+                  newKeyCircleBezier(pos.x , currentCircleRig);
+                }
+            
+              }else if (selectMode == 10){
+                if(currentCircleRig->circleRig->selectedPoint == &currentCircleRig->circleRig->pTop){
+                  currentCircleRig->circleRig->kTop = std::max(0.f ,currentCircleRig->circleRig->kTop + 0.05f*forceValue);
+                }else if(currentCircleRig->circleRig->selectedPoint == &currentCircleRig->circleRig->pBottom){
+                  currentCircleRig->circleRig->kBottom= std::max(0.f ,currentCircleRig->circleRig->kBottom + 0.05f*forceValue);
+                }else if(currentCircleRig->circleRig->selectedPoint == &currentCircleRig->circleRig->pLeft){
+                  currentCircleRig->circleRig->kLeft = std::max(0.f ,currentCircleRig->circleRig->kLeft + 0.05f*forceValue);
+                }else if(currentCircleRig->circleRig->selectedPoint == &currentCircleRig->circleRig->pRight){
+                  currentCircleRig->circleRig->kRight = std::max(0.f ,currentCircleRig->circleRig->kRight + 0.05f*forceValue);
+                }
+                currentCircleRig->circleRig->update();
+                auto pos = currentFrame.getPosition();
+                newKeyCircleBezier(pos.x , currentCircleRig);
+              }else if (selectMode == 9){
+                if(currentCircleRig->circleRig->selectedPoint == &currentCircleRig->circleRig->pTop){
+                  currentCircleRig->circleRig->rotTop += 0.05*forceValue;
+                }else if(currentCircleRig->circleRig->selectedPoint == &currentCircleRig->circleRig->pBottom){
+                  currentCircleRig->circleRig->rotBottom += 0.05*forceValue;
+                }else if(currentCircleRig->circleRig->selectedPoint == &currentCircleRig->circleRig->pLeft){
+                  currentCircleRig->circleRig->rotLeft+= 0.05*forceValue;
+                }else if(currentCircleRig->circleRig->selectedPoint == &currentCircleRig->circleRig->pRight){
+                  currentCircleRig->circleRig->rotRight+= 0.05*forceValue;
+                }
+                currentCircleRig->circleRig->update();
+                auto pos = currentFrame.getPosition();
+                newKeyCircleBezier(pos.x , currentCircleRig);
+              }else if (selectMode == 8){
+                if (currentCircleRig != nullptr && currentCircleRig->circleRig != nullptr) {
+                    currentCircleRig->circleRig->pLeft.pos.x += forceValue;
+                    currentCircleRig->circleRig->pRight.pos.x += forceValue;
+                    currentCircleRig->circleRig->pBottom.pos.x += forceValue;
+                    currentCircleRig->circleRig->pTop.pos.x += forceValue;
+                    currentCircleRig->circleRig->update(); // Actualizamos los cálculos visuales
+                    auto pos = currentFrame.getPosition();
+                    newKeyCircleBezier(pos.x , currentCircleRig);
+                }
               }else if (selectMode == 6){
                 auto pos = currentAsset->shape.getRotation();
                 currentAsset->shape.setRotation(pos + forceValue);
@@ -2588,6 +2913,23 @@ int main() {
                 auto pos = currentAsset->shape.getPosition();
                 currentAsset->shape.setPosition(pos.x ,pos.y +forceValue);
                 newKeyCurrentAsset(currentFrame, currentAsset);
+              }else if (selectMode == 8){
+                if (currentCircleRig != nullptr && currentCircleRig->circleRig != nullptr) {
+                    currentCircleRig->circleRig->pLeft.pos.y += forceValue;
+                    currentCircleRig->circleRig->pRight.pos.y += forceValue;
+                    currentCircleRig->circleRig->pBottom.pos.y += forceValue;
+                    currentCircleRig->circleRig->pTop.pos.y += forceValue;
+                    currentCircleRig->circleRig->update(); // Actualizamos los cálculos visuales
+                    auto pos = currentFrame.getPosition();
+                    newKeyCircleBezier(pos.x , currentCircleRig);
+                }
+              }else if (selectMode == 7){
+                if(currentCircleRig->circleRig->selectedPoint!= nullptr){
+                  currentCircleRig->circleRig->selectedPoint->pos.y += forceValue;
+                  currentCircleRig->circleRig->update();
+                  auto pos = currentFrame.getPosition();
+                  newKeyCircleBezier(pos.x , currentCircleRig);
+                }
               }else if (selectMode == 5){
                 auto pos = currentAsset->shape.getScale();
                 currentAsset->shape.setScale(pos.x,pos.y + forceValue);
@@ -2648,6 +2990,10 @@ int main() {
                         asset.shape.setScale(keyData.scaleX, keyData.scaleY);
                     }
                 }
+                //actualizar posiciones de circle bezier 
+                for (auto& circle : circleRigList){
+                  updatePosCircleBezier(pos.x -forceMove_frame, circle); 
+                } 
                 //actuaizar view timeline
                 int frameInt = static_cast<int>(pos.x);
                 pageOffset = (static_cast<float>(frameInt / 450)) * 450.f;
@@ -2677,12 +3023,67 @@ int main() {
                 head_ctrl.setPosition(pos.x - forceValue ,pos.y);              
                 newKey(currentFrame, head, frameKeylist,dataHead,bodyKeyList,fullBody);
               }else if (selectMode== 3){
-                scaleAllBody(fullBody,head,1.1f);
-                newKey(currentFrame, head, frameKeylist,dataHead,bodyKeyList,fullBody);
+                if (selectTarget == 0){
+                  scaleAllBody(fullBody,head,1.1f);
+                  newKey(currentFrame, head, frameKeylist,dataHead,bodyKeyList,fullBody);
+                }else if (selectTarget == 2){
+                    if (currentCircleRig != nullptr && currentCircleRig->circleRig != nullptr) {
+                        currentCircleRig->circleRig->pLeft.pos.x += forceValue;
+                        currentCircleRig->circleRig->pRight.pos.x -= forceValue;
+                        currentCircleRig->circleRig->pBottom.pos.y -= forceValue;
+                        currentCircleRig->circleRig->pTop.pos.y += forceValue;
+                        currentCircleRig->circleRig->radius -= forceValue;
+                        currentCircleRig->circleRig->update(); // Actualizamos los cálculos visuales
+                    }
+                }
               }else if (selectMode == 4){
                 auto pos = currentAsset->shape.getPosition();
                 currentAsset->shape.setPosition(pos.x - forceValue,pos.y);
                 newKeyCurrentAsset(currentFrame, currentAsset);
+              }else if (selectMode == 7){
+                if(currentCircleRig->circleRig->selectedPoint!= nullptr){
+                  currentCircleRig->circleRig->selectedPoint->pos.x -= forceValue;
+                  currentCircleRig->circleRig->update();
+                  auto pos = currentFrame.getPosition();
+                  newKeyCircleBezier(pos.x , currentCircleRig);
+                }
+
+              }else if (selectMode == 10){
+                if(currentCircleRig->circleRig->selectedPoint == &currentCircleRig->circleRig->pTop){
+                  currentCircleRig->circleRig->kTop = std::max(0.f ,currentCircleRig->circleRig->kTop - 0.05f*forceValue);
+                }else if(currentCircleRig->circleRig->selectedPoint == &currentCircleRig->circleRig->pBottom){
+                  currentCircleRig->circleRig->kBottom= std::max(0.f ,currentCircleRig->circleRig->kBottom - 0.05f*forceValue);
+                }else if(currentCircleRig->circleRig->selectedPoint == &currentCircleRig->circleRig->pLeft){
+                  currentCircleRig->circleRig->kLeft = std::max(0.f ,currentCircleRig->circleRig->kLeft - 0.05f*forceValue);
+                }else if(currentCircleRig->circleRig->selectedPoint == &currentCircleRig->circleRig->pRight){
+                  currentCircleRig->circleRig->kRight = std::max(0.f ,currentCircleRig->circleRig->kRight - 0.05f*forceValue);
+                }
+                currentCircleRig->circleRig->update();
+                auto pos = currentFrame.getPosition();
+                newKeyCircleBezier(pos.x , currentCircleRig);
+              }else if (selectMode == 9){
+                if(currentCircleRig->circleRig->selectedPoint == &currentCircleRig->circleRig->pTop){
+                  currentCircleRig->circleRig->rotTop -= 0.05*forceValue;
+                }else if(currentCircleRig->circleRig->selectedPoint == &currentCircleRig->circleRig->pBottom){
+                  currentCircleRig->circleRig->rotBottom -= 0.05*forceValue;
+                }else if(currentCircleRig->circleRig->selectedPoint == &currentCircleRig->circleRig->pLeft){
+                  currentCircleRig->circleRig->rotLeft -= 0.05*forceValue;
+                }else if(currentCircleRig->circleRig->selectedPoint == &currentCircleRig->circleRig->pRight){
+                  currentCircleRig->circleRig->rotRight-= 0.05*forceValue;
+                }
+                currentCircleRig->circleRig->update();
+                auto pos = currentFrame.getPosition();
+                newKeyCircleBezier(pos.x , currentCircleRig);
+              }else if (selectMode == 8){
+                if (currentCircleRig != nullptr && currentCircleRig->circleRig != nullptr) {
+                    currentCircleRig->circleRig->pLeft.pos.x -= forceValue;
+                    currentCircleRig->circleRig->pRight.pos.x -= forceValue;
+                    currentCircleRig->circleRig->pBottom.pos.x -= forceValue;
+                    currentCircleRig->circleRig->pTop.pos.x -= forceValue;
+                    currentCircleRig->circleRig->update(); // Actualizamos los cálculos visuales
+                    auto pos = currentFrame.getPosition();
+                    newKeyCircleBezier(pos.x , currentCircleRig);
+                }
               }else if (selectMode == 6){
                 auto pos = currentAsset->shape.getRotation();
                 currentAsset->shape.setRotation(pos - forceValue);
@@ -2739,6 +3140,29 @@ int main() {
                 auto pos = currentAsset->shape.getPosition();
                 currentAsset->shape.setPosition(pos.x ,pos.y -forceValue);
                 newKeyCurrentAsset(currentFrame, currentAsset);
+              }else if (selectMode == 8){
+                if (currentCircleRig != nullptr && currentCircleRig->circleRig != nullptr) {
+                    currentCircleRig->circleRig->pLeft.pos.y -= forceValue;
+                    currentCircleRig->circleRig->pRight.pos.y -= forceValue;
+                    currentCircleRig->circleRig->pBottom.pos.y -= forceValue;
+                    currentCircleRig->circleRig->pTop.pos.y -= forceValue;
+                    currentCircleRig->circleRig->update(); // Actualizamos los cálculos visuales
+                    auto pos = currentFrame.getPosition();
+                    newKeyCircleBezier(pos.x , currentCircleRig);
+                } else {
+                    // Opcional: Mostrar un mensaje si no hay ningún rig activo seleccionado
+                    ss.str("");
+                    ss.clear();
+                    ss << "No hay circle rig seleccionado :(";
+                    setMensajeTime(ss, timeMensaje, viewTimeMensaje, mensajeClock);
+                }
+              }else if (selectMode == 7){
+                if(currentCircleRig->circleRig->selectedPoint!= nullptr){
+                  currentCircleRig->circleRig->selectedPoint->pos.y -= forceValue;
+                  currentCircleRig->circleRig->update();
+                  auto pos = currentFrame.getPosition();
+                  newKeyCircleBezier(pos.x , currentCircleRig);
+                }
               }else if (selectMode == 5){
                 auto pos = currentAsset->shape.getScale();
                 currentAsset->shape.setScale(pos.x ,pos.y - forceValue);
@@ -2792,19 +3216,23 @@ int main() {
                 selectCtrl(fullBody,preSelect,1,&fullBody[1]->pCenter,selectMode);
             }
           }else if (event.key.code == sf::Keyboard::B){
-            if (multiSelectMode){
-                selectCtrlMulti(fullBody,4,&fullBody[4]->pBottom);
-            }else{
-                selectCtrl(fullBody,preSelect,4,&fullBody[4]->pBottom,selectMode);
+            if (selectTarget == 0){
+                if (multiSelectMode){
+                    selectCtrlMulti(fullBody,4,&fullBody[4]->pBottom);
+                }else{
+                    selectCtrl(fullBody,preSelect,4,&fullBody[4]->pBottom,selectMode);
+                }
+            }else if (selectTarget == 2){
+              currentCircleRig->circleRig->selectPoint(&currentCircleRig->circleRig->pRight);
             }
           }else if (event.key.code == sf::Keyboard::P){
-            if (selectedAssetTarget == ""){ 
+            if (selectTarget == 0) {
                 if (multiSelectMode){
                     selectCtrlMulti(fullBody,4,&fullBody[4]->pCenter);
                 }else{
-                    selectCtrl(fullBody,preSelect,4,&fullBody[4]->pCenter,selectMode);
+                  selectCtrl(fullBody,preSelect,4,&fullBody[4]->pCenter,selectMode);
                 }
-            }else{
+            }else if (selectTarget == 1){
               moveState = 2;
               selectMode = 4;
               forceValue = 5;
@@ -2812,15 +3240,17 @@ int main() {
               ss.clear();
               ss << "asset mode : Move"; 
               setMensajeTime(ss, timeMensaje , viewTimeMensaje, mensajeClock);
+            }else if (selectTarget == 2){
+              currentCircleRig->circleRig->selectPoint(&currentCircleRig->circleRig->pTop);
             }
           }else if (event.key.code == sf::Keyboard::O){
-            if (selectedAssetTarget == ""){ 
+            if (selectTarget == 0){ 
                 if (multiSelectMode){
                     selectCtrlMulti(fullBody,4,&fullBody[4]->pUp);
                 }else{
                     selectCtrl(fullBody,preSelect,4,&fullBody[4]->pUp,selectMode);
                 }
-            }else{
+            }else if (selectTarget == 1){
               moveState = 3;
               selectMode = 6;
               forceValue = 1;
@@ -2828,16 +3258,18 @@ int main() {
               ss.clear();
               ss << "asset mode : Rotate"; 
               setMensajeTime(ss, timeMensaje , viewTimeMensaje, mensajeClock);
+            }else if (selectTarget == 2){
+              currentCircleRig->circleRig->selectPoint(&currentCircleRig->circleRig->pBottom);
             }
                
           }else if (event.key.code == sf::Keyboard::U){
-            if (selectedAssetTarget == ""){ 
+            if (selectTarget == 0){ 
               if (multiSelectMode){
                     selectCtrlMulti(fullBody,0,&fullBody[0]->pCenter);
               }else{
                     selectCtrl(fullBody,preSelect,0,&fullBody[0]->pCenter,selectMode);
               }
-            }else{
+            }else if (selectTarget== 1){
               moveState = 2;
               selectMode = 5;
               forceValue = 1;
@@ -2845,45 +3277,74 @@ int main() {
               ss.clear();
               ss << "asset mode : Scale"; 
               setMensajeTime(ss, timeMensaje , viewTimeMensaje, mensajeClock);
+            }else if (selectTarget == 2){
+              currentCircleRig->circleRig->selectPoint(&currentCircleRig->circleRig->pLeft);
             }
                
           }else if (event.key.code == sf::Keyboard::L){
+            if (selectTarget == 0){
                 if (multiSelectMode){
                      selectCtrlMulti(fullBody,0,&fullBody[0]->pBottom);
                  }else{
                      selectCtrl(fullBody,preSelect,0,&fullBody[0]->pBottom,selectMode);
                  }
-          }else if (event.key.code == sf::Keyboard::K){
-            if (rangeSelect){
-              auto pos = currentFrame.getPosition();
-              start_range = pos.x;
+            }else if(selectTarget == 2){
+              moveState = 3;
+              selectMode =9;
               ss.str("");
               ss.clear();
-              ss << "start : " << start_range; 
+              ss << "mode : rot cicle"; 
               setMensajeTime(ss, timeMensaje , viewTimeMensaje, mensajeClock);
-            }else {
-                if (multiSelectMode){
-                    selectCtrlMulti(fullBody,2,&fullBody[2]->pCenter);
-                }else{
-                    selectCtrl(fullBody,preSelect,2,&fullBody[2]->pCenter,selectMode);
+            }
+          }else if (event.key.code == sf::Keyboard::K){
+            if(selectTarget == 0){
+                if (rangeSelect){
+                  auto pos = currentFrame.getPosition();
+                  start_range = pos.x;
+                  ss.str("");
+                  ss.clear();
+                  ss << "start : " << start_range; 
+                  setMensajeTime(ss, timeMensaje , viewTimeMensaje, mensajeClock);
+                }else {
+                    if (multiSelectMode){
+                        selectCtrlMulti(fullBody,2,&fullBody[2]->pCenter);
+                    }else{
+                        selectCtrl(fullBody,preSelect,2,&fullBody[2]->pCenter,selectMode);
+                    }
                 }
+            }else if(selectTarget == 2){
+              moveState = 3;
+              selectMode = 7;
+              ss.str("");
+              ss.clear();
+              ss << "move ctrl"; 
+              setMensajeTime(ss, timeMensaje , viewTimeMensaje, mensajeClock);
             }
           }else if (event.key.code == sf::Keyboard::J){
-            if (rangeSelect){
-              rangeSelect = false;
-              auto pos = currentFrame.getPosition();
-              end_range = pos.x;
+            if (selectTarget == 0){
+                if (rangeSelect){
+                  rangeSelect = false;
+                  auto pos = currentFrame.getPosition();
+                  end_range = pos.x;
+                  ss.str("");
+                  ss.clear();
+                  ss << "end : " << end_range; 
+                  setMensajeTime(ss, timeMensaje , viewTimeMensaje, mensajeClock);
+                }else {
+                    if (multiSelectMode){
+                        selectCtrlMulti(fullBody,2,&fullBody[2]->pBottom);
+                    }else{
+                        selectCtrl(fullBody,preSelect,2,&fullBody[2]->pBottom,selectMode);
+                    }
+                       }
+            }else if(selectTarget == 2){
+              moveState = 3;
+              selectMode = 10;
               ss.str("");
               ss.clear();
-              ss << "end : " << end_range; 
+              ss << "move scale"; 
               setMensajeTime(ss, timeMensaje , viewTimeMensaje, mensajeClock);
-            }else {
-                if (multiSelectMode){
-                    selectCtrlMulti(fullBody,2,&fullBody[2]->pBottom);
-                }else{
-                    selectCtrl(fullBody,preSelect,2,&fullBody[2]->pBottom,selectMode);
-                }
-                   }
+            }
           }else if (event.key.code == sf::Keyboard::G){
 
             if (multiSelectMode){
@@ -2904,22 +3365,39 @@ int main() {
           }else if (event.key.code == sf::Keyboard::T){
             moveState = 2;
           }else if (event.key.code == sf::Keyboard::Enter){
-            if (create_circle_bezier){
+            ss.str("");
+            ss.clear();
+            //Pin: crear nuevo circle bezier
+            if (create_circle_bezier){ 
                 create_circle_bezier = false;
-                circleRig->borderColor = sf::Color(outlineR,outlineG,outlineB);
-                circleRig->fillColor = sf::Color(fillR,fillG,fillB);
-                circleRig->update();
+                circleRigData newCircleRig; 
+                newCircleRig.name = name_input_value; 
+                auto pos = currentFrame.getPosition();        
+                newCircleRig.circleRig = std::make_unique<CircleBezier4Points>(sf::Vector2f(320.f, 240.f) , sf::Color(fillR,fillG,fillB),sf::Color(outlineR,outlineG,outlineB));
+                newCircleRig.keyframeData = std::map<float,circleBezierData >{};
+                circleRigList.push_back(std::move(newCircleRig));
+                currentCircleRig= &circleRigList.back(); 
+                currentCircleRig->setPosData(pos.x); 
+                selectTarget = 2;
+                selectMode = 8;
+                moveState = 2;
+                ss << "nuevo : circle rig" << "creado"; 
+                setMensajeTime(ss, timeMensaje , viewTimeMensaje, mensajeClock);
             }else{
-                selectMode = 1;
-                if (preSelect){
-                  preSelect->selectedPoint  = nullptr;
-                  preSelect->update();
+                if (selectTarget == 0){
+                    selectMode = 1;
+                    if (preSelect){
+                      preSelect->selectedPoint  = nullptr;
+                      preSelect->update();
+                    }
+                    auto posHips = fullBody[4]->pBottom.pos;
+                    allBody_ctrl.setPosition(posHips.x , posHips.y + 20);
+                    ss << "select all  : body " << "on"; 
+                }else if(selectTarget == 2){
+                    selectMode = 8;
+                    moveState = 2;
+                    ss << "select all  : circle rig" << "on"; 
                 }
-                auto posHips = fullBody[4]->pBottom.pos;
-                allBody_ctrl.setPosition(posHips.x , posHips.y + 20);
-                ss.str("");
-                ss.clear();
-                ss << "select all  : " << "on"; 
                 setMensajeTime(ss, timeMensaje , viewTimeMensaje, mensajeClock);
              }
           }else if (event.key.code == sf::Keyboard::E){
@@ -2955,7 +3433,12 @@ int main() {
             if (kb != bodyKeyList.end()){
               updatePosbody(fullBody , kb->second.dataAttr); 
             }
-                
+            //actuaizar circle bezier 
+            for (auto& circle : circleRigList){
+              updatePosCircleBezier(pos.x, circle); 
+            } 
+            //actuaizar assets 
+            updatePosAllAssets(globalAssets, pos.x);       
           }else if (event.key.code == sf::Keyboard::Escape){
             ejecutar_action = true;
           }else if (event.key.code == sf::Keyboard::A){
@@ -2970,7 +3453,7 @@ int main() {
             selectedResult = 0;
             justOpenBuscador = true;
             //modo acciones
-            selectAudio = 0;
+            selectBuscador = 0;
             update_lista_buscador = true;
           }else if (event.key.code == sf::Keyboard::D){
             ss.str("");
@@ -3493,7 +3976,7 @@ int main() {
         selectedResult = 0;
         justOpenBuscador = true;
         //cargamos la lista de json animacion de la carpeta saveAnimacion
-        selectAudio = 3;
+        selectBuscador = 3;
         update_lista_buscador = true;
       }else if (select_action == "save animation"){
         //primero abrimos el buscardor pero en modo de seleccion de audio
@@ -3502,7 +3985,7 @@ int main() {
         selectedResult = 0;
         justOpenBuscador = true;
         //cargamos la lista de json animacion de la carpeta saveAnimacion
-        selectAudio = 2;
+        selectBuscador = 2;
         update_lista_buscador = true;
       }else if (select_action == "Scene render"){
         if (fs::exists("render") && fs::is_directory("render")) {
@@ -3516,9 +3999,14 @@ int main() {
         isRender = true;
         start_render = 5.f;   
         end_render = maxFramePosition; 
-      }else if (select_action == "range render"){
+      }else if (select_action == "set range render"){
         start_render = start_range;
         end_render = end_range;
+        ss.str("");
+        ss.clear();
+        ss << "render ("<< start_render<<")" << " : " << "(" <<end_render <<")";
+        setMensajeTime(ss, timeMensaje, viewTimeMensaje, mensajeClock);
+      }else if (select_action == "range render"){
         if (fs::exists("render") && fs::is_directory("render")) {
             for (const auto& entry : fs::directory_iterator("render")) {
                 fs::remove_all(entry.path());
@@ -3535,7 +4023,7 @@ int main() {
         selectedResult = 0;
         justOpenBuscador = true;
         //cargamos la lista de audio
-        selectAudio = 1;
+        selectBuscador = 1;
         update_lista_buscador = true;
       }else if (select_action == "pin controles") {
             pinnedControls.clear();
@@ -3851,7 +4339,7 @@ int main() {
         }
       }else if (select_action == "remove key"){
         float currentX = currentFrame.getPosition().x;
-        if (selectedAssetTarget == ""){ 
+        if (selectTarget == 0){
             // Buscar el keyframe exactamente en la posición actual
             auto frameIt = frameKeylist.find(currentX);
             if (frameIt != frameKeylist.end()){
@@ -3900,7 +4388,7 @@ int main() {
                     mensajeClock
                 );
             }
-        }else{
+        }else if (selectTarget == 1){
           auto it = currentAsset->assetDataList.find(currentX);
           if (it != currentAsset->assetDataList.end()) {
                 currentAsset->assetDataList.erase(currentX);
@@ -3911,20 +4399,26 @@ int main() {
                 ss << "No hay keyframe en "<< currentX;
                 setMensajeTime(ss,timeMensaje,viewTimeMensaje,mensajeClock);
           }
+        }else if (selectTarget == 2){
+            auto it = currentCircleRig->keyframeData.find(currentX); 
+            if (it != currentCircleRig->keyframeData.end()){
+                currentCircleRig->keyframeData.erase(currentX); 
+            }
         }
       }else if (select_action == "add assets"){
             openBuscador = true;
             query.clear();
+            name_input_mode = 0;
             selectedResult = 0;
             justOpenBuscador = true;
-            selectAudio = 4; // Activamos el modo de captura de nombre de asset
+            selectBuscador = 4; // Activamos el modo de captura de nombre de asset
             update_lista_buscador = true;
       }else if (select_action == "select asset"){
             openBuscador = true;
             query.clear();
             selectedResult = 0;
             justOpenBuscador = true;
-            selectAudio = 5; // Activamos el selector de assets/personaje
+            selectBuscador = 5; // Activamos el selector de assets/personaje
             update_lista_buscador = true;
       }else if (select_action == "extend audio"){
             float currentX = currentFrame.getPosition().x;
@@ -4353,7 +4847,6 @@ int main() {
         auto spineUpy = fullBody[4]->pUp.pos.y;
         head.setPosition(spineUpx - 50,spineUpy - 100);
         newKey(currentFrame, head, frameKeylist,dataHead,bodyKeyList,fullBody);
-        std::cout << spineUpx << " , " << spineUpy << std::endl; 
       }else if (select_action == "mirror pose"){
 
             mirrorPose(fullBody, head);
@@ -4659,11 +5152,13 @@ int main() {
             }
         
       }else if (select_action == "circle bezier"){
-        if (create_circle_bezier){
-          create_circle_bezier = false; 
-        }else {
-          create_circle_bezier = true;
-        }
+        name_input_mode = 1;
+        openBuscador = true;
+        query.clear();
+        selectedResult = 0;
+        justOpenBuscador = true;
+        selectBuscador = 4; // Activamos el modo de captura de nombre de asset
+        update_lista_buscador = true;
       }else if (select_action == "volumen audio"){
         volumenAudio = true;
         ss.str("");
@@ -4741,6 +5236,16 @@ int main() {
             ss.str("");
             ss.clear();
             ss << "paste pose range aplicado con exito :)";
+            setMensajeTime(ss, timeMensaje, viewTimeMensaje, mensajeClock);
+        }
+      } else if (select_action == "visibility circle") {
+        if (currentCircleRig != nullptr) {
+            currentCircleRig->visible = !currentCircleRig->visible;
+            auto pos = currentFrame.getPosition();
+            newKeyCircleBezier(pos.x, currentCircleRig); // Actualiza o crea el keyframe con el nuevo estado
+            
+            ss.str(""); ss.clear();
+            ss << "Circle Bezier visible: " << (currentCircleRig->visible ? "SI" : "NO");
             setMensajeTime(ss, timeMensaje, viewTimeMensaje, mensajeClock);
         }
       } else if (select_action == "paste pose range mirror") {
@@ -4842,6 +5347,11 @@ int main() {
           activeSound.setBuffer(audioIt->second.soundBufferCache);
           activeSound.play();
         }
+        //actuaizar circle bezier 
+        for (auto& circle : circleRigList){
+          updatePosCircleBezier(pos.x, circle); 
+        } 
+        //actuaizar assets 
         updatePosAllAssets(globalAssets, pos.x);       
         //actuaizar view timeline
         int frameInt = static_cast<int>(pos.x);
@@ -4928,21 +5438,20 @@ int main() {
           window.draw(lineFrame);
         }
     }
-
-    if (selectedAssetTarget.empty()) {
-        // Mostrar keys normales del cuerpo
-        for (const auto& par : frameKeylist){
-            window.draw(par.second);
-        }
-    } else {
+    //Pin: timeline setup
+    if (selectTarget == 0) {
+      for (const auto& par : frameKeylist){
+        window.draw(par.second);
+      }
+    }else if (selectTarget == 2){
+      for (const auto& par : currentCircleRig->keyframeData){
+          keyCirleBezier.setPosition(par.first, 0);
+          window.draw(keyCirleBezier);
+      }        
+    }else if (selectTarget == 1){
         // Buscar el asset seleccionado y dibujar SOLO sus keys
-        auto it = std::find_if(globalAssets.begin(), globalAssets.end(), [selectedAssetTarget](const AssetControl& ac){
-            return ac.name == selectedAssetTarget;
-        });
-        if (it != globalAssets.end()) {
-            for (const auto& par : it->assetKeylist){
-                window.draw(par.second);
-            }
+        for (const auto& par : currentAsset->assetKeylist){
+            window.draw(par.second);
         }
     }
     for (const auto& par : audioKeyList){
@@ -4981,6 +5490,9 @@ int main() {
           if (db != bodyKeyList.end()){
               updatePosbody(fullBody, db->second.dataAttr);
           }
+          for (auto& circle : circleRigList){
+            updatePosCircleBezier(framePos , circle); 
+          } 
           updatePosAllAssets(globalAssets, framePos);
             
           render.clear(sf::Color::White);
@@ -4992,6 +5504,11 @@ int main() {
           }
           for (const auto& asset : globalAssets) {
             render.draw(asset.shape);
+          }
+          for (const auto& rigData : circleRigList){
+            if (rigData.visible){
+              rigData.circleRig->draw(render , false);
+            }
           }
           render.display();
 
@@ -5159,15 +5676,15 @@ int main() {
         queryText.setCharacterSize(18);
         queryText.setFillColor(sf::Color::White);
         queryText.setPosition(20, 20);
-        if (selectAudio == 1){
+        if (selectBuscador == 1){
           queryText.setString("Audio: " + query + "_");
-        }else if (selectAudio == 2){
+        }else if (selectBuscador == 2){
           queryText.setString("Save: " + query + "_");
-        }else if (selectAudio == 4){
+        }else if (selectBuscador == 4){
           queryText.setString("Name: " + query + "_");
-        }else if (selectAudio == 5){
+        }else if (selectBuscador == 5){
           queryText.setString("Asset: " + query + "_");
-        }else if (selectAudio == 3){
+        }else if (selectBuscador == 3){
           queryText.setString("Load: " + query + "_");
         }else{
           queryText.setString("Accion: " + query + "_");
@@ -5279,7 +5796,11 @@ int main() {
         infoText.setString("RGB: (" + std::to_string(activeR) + ", " + std::to_string(activeG) + ", " + std::to_string(activeB) + ")");
         window.draw(infoText);
     }
-    circleRig->draw(window);
+    for (const auto& rigData : circleRigList){
+      if (rigData.visible){
+        rigData.circleRig->draw(window, !isPlay);
+      }
+    }
     window.display();
   }
   return 0;
